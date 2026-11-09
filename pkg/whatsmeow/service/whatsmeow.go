@@ -403,6 +403,12 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 		}
 	}
 
+	// LionCRM fix (Client outdated 405): a versão acima só ia para DeviceProps,
+	// mas o handshake usa a versão global da whatsmeow (BaseClientPayload + BuildHash).
+	// Sem isso o WhatsApp recusa a versão antiga embutida na biblioteca e o QR nunca é gerado.
+	applyHandshakeWhatsAppVersion(version)
+	w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Handshake WhatsApp version: %s", cd.Instance.Id, store.GetWAVersion().String())
+
 	// 🔒 FIX: Sempre criar logger, mesmo que WaDebug esteja vazio
 	// Usar "INFO" como nível mínimo para garantir que logs importantes apareçam
 	minLevel := w.config.WaDebug
@@ -2609,6 +2615,20 @@ var (
 	cachedWebVersionMu sync.Mutex
 	webVersionCacheTTL = 1 * time.Hour
 )
+
+var handshakeWhatsAppVersionMu sync.Mutex
+
+// applyHandshakeWhatsAppVersion aplica a versão (definida por env WHATSAPP_VERSION_* ou
+// buscada em web.whatsapp.com) ao payload de handshake da whatsmeow. Versão zerada
+// (busca falhou e sem env) mantém a versão embutida na biblioteca.
+func applyHandshakeWhatsAppVersion(version clientVersion) {
+	if version.Major <= 0 || version.Minor <= 0 || version.Patch <= 0 {
+		return
+	}
+	handshakeWhatsAppVersionMu.Lock()
+	defer handshakeWhatsAppVersionMu.Unlock()
+	store.SetWAVersion(store.WAVersionContainer{uint32(version.Major), uint32(version.Minor), uint32(version.Patch)})
+}
 
 func fetchWhatsAppWebVersion() (*clientVersion, error) {
 	cachedWebVersionMu.Lock()

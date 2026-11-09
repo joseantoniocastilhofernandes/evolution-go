@@ -1,0 +1,66 @@
+name: Publicar imagem LionCRM (GHCR)
+
+# Gera a imagem própria do Evolution Go usada pelo LionCRM.
+# Roda a cada push no branch `lioncrm` ou manualmente (aba Actions → Run workflow).
+on:
+  push:
+    branches:
+      - lioncrm
+  workflow_dispatch:
+
+jobs:
+  publicar:
+    name: Build e publicação
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ler versão
+        id: versao
+        run: |
+          echo "base=$(cat VERSION 2>/dev/null || echo '0.0.0')" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Nome da imagem (minúsculo)
+        id: imagem
+        run: echo "nome=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/evolution-go" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          # Tags: versão fixa com o commit (use esta no YAML da Hostinger) + atalho da série
+          tags: |
+            ${{ steps.imagem.outputs.nome }}:${{ steps.versao.outputs.base }}-lioncrm-${{ steps.versao.outputs.commit }}
+            ${{ steps.imagem.outputs.nome }}:${{ steps.versao.outputs.base }}-lioncrm
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.versao.outputs.base }}-lioncrm
+
+      - name: Resumo
+        run: |
+          {
+            echo "### Imagem publicada"
+            echo ""
+            echo "\`${{ steps.imagem.outputs.nome }}:${{ steps.versao.outputs.base }}-lioncrm-${{ steps.versao.outputs.commit }}\`"
+            echo ""
+            echo "Digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
